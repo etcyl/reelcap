@@ -18,6 +18,8 @@ public partial class MainWindow : Window
     readonly Dictionary<MonitorInfo, Image> _thumbImages = new();
     List<MonitorInfo> _monitors = new();
     MonitorInfo? _monitor;
+    List<AppWindow> _apps = new();
+    AppWindow? _app;
     DateTime _started;
     int _recSeconds;
     string _lastClip = "";
@@ -43,16 +45,26 @@ public partial class MainWindow : Window
         CursorToggle.Click += (_, _) => { _s.Cursor = CursorToggle.IsChecked == true; _s.Save(); };
         GpuToggle.Click += (_, _) => { _s.UseGpu = GpuToggle.IsChecked == true; _s.Save(); UpdateEncoderBadge(); };
         HideToggle.Click += (_, _) => { _s.HideWhileRecording = HideToggle.IsChecked == true; _s.Save(); };
+        BindToggle(AppAudioToggle, () => _s.AppAudio, v => _s.AppAudio = v);
+        BindToggle(OtherAudioToggle, () => _s.OtherAudio, v => _s.OtherAudio = v);
+        BindToggle(SystemAudioToggle, () => _s.SystemAudio, v => _s.SystemAudio = v);
+        BindToggle(MicToggle, () => _s.Mic, v => _s.Mic = v);
         FolderText.Text = _s.Folder;
 
+        AddChip(SourceChips, "src", "Screen", !_s.AppMode, () => SetMode(false));
+        AddChip(SourceChips, "src", "Application", _s.AppMode, () => SetMode(true));
+
         _rec.Progress += (frame, fps, drop, secs) => Dispatcher.BeginInvoke(() => OnProgress(frame, fps, drop, secs));
-        _rec.Finished += (code, err) => Dispatcher.BeginInvoke(() => OnFinished(code, err));
+        _rec.Notice += text => Dispatcher.BeginInvoke(() => StatusText.Text = text);
+        _rec.Finished += (ok, message) => Dispatcher.BeginInvoke(() => OnFinished(ok, message));
         _thumbs.Tick += (_, _) => RefreshThumbnails();
         _clock.Tick += (_, _) => Tick();
 
         Loaded += async (_, _) =>
         {
             LoadMonitors();
+            LoadApps();
+            SetMode(_s.AppMode);
             _thumbs.Start();
             if (Ffmpeg.Path == null)
             {
@@ -91,6 +103,7 @@ public partial class MainWindow : Window
             AddChip(QualityChips, "q", q.ToString(), _s.Quality == q, () => { _s.Quality = q; _s.Save(); });
         AddChip(FormatChips, "fmt", "H.264", _s.Codec == Codec.H264, () => { _s.Codec = Codec.H264; _s.Save(); UpdateEncoderBadge(); });
         AddChip(FormatChips, "fmt", "HEVC", _s.Codec == Codec.Hevc, () => { _s.Codec = Codec.Hevc; _s.Save(); UpdateEncoderBadge(); });
+        AddChip(FormatChips, "fmt", "AV1", _s.Codec == Codec.Av1, () => { _s.Codec = Codec.Av1; _s.Save(); UpdateEncoderBadge(); });
     }
 
     static RadioButton AddChip(Panel host, string group, string label, bool on, Action pick)
@@ -111,6 +124,58 @@ public partial class MainWindow : Window
         tb.TextChanged += (_, _) => changed(tb.Text.Trim());
         host.Children.Add(tb);
         return tb;
+    }
+
+    void BindToggle(System.Windows.Controls.Primitives.ToggleButton t, Func<bool> get, Action<bool> set)
+    {
+        t.IsChecked = get();
+        t.Click += (_, _) => { set(t.IsChecked == true); _s.Save(); };
+    }
+
+    /// <summary>For the off-screen screenshot.</summary>
+    public void SelectAppMode() => ((RadioButton)SourceChips.Children[1]).IsChecked = true;
+
+    void SetMode(bool app)
+    {
+        _s.AppMode = app;
+        _s.Save();
+        MonitorList.Visibility = app ? Visibility.Collapsed : Visibility.Visible;
+        AppList.Visibility = app ? Visibility.Visible : Visibility.Collapsed;
+        AppAudioToggle.Visibility = OtherAudioToggle.Visibility = app ? Visibility.Visible : Visibility.Collapsed;
+        SystemAudioToggle.Visibility = app ? Visibility.Collapsed : Visibility.Visible;
+        if (app) LoadApps();
+        UpdateResolutionChips();
+    }
+
+    void LoadApps()
+    {
+        _apps = AppWindows.Enumerate().OrderBy(a => a.Exe, StringComparer.OrdinalIgnoreCase).ThenBy(a => a.Title).ToList();
+        AppList.Children.Clear();
+        _app = _apps.FirstOrDefault(a => _app != null && a.Hwnd == _app.Hwnd)
+               ?? _apps.FirstOrDefault(a => a.Exe.Equals(_s.AppExe, StringComparison.OrdinalIgnoreCase));
+        foreach (var a in _apps)
+        {
+            var row = new DockPanel();
+            row.Children.Add(new Image { Source = a.Icon, Width = 28, Height = 28, Margin = new Thickness(0, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center });
+            DockPanel.SetDock(row.Children[0], Dock.Left);
+            row.Children.Add(new StackPanel
+            {
+                Children =
+                {
+                    new TextBlock { Text = a.Title, FontSize = 13, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis },
+                    new TextBlock { Text = a.Detail, FontSize = 11.5, Foreground = (Brush)FindResource("Muted"), Margin = new Thickness(0, 2, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis },
+                },
+            });
+            var card = new RadioButton
+            {
+                Style = (Style)FindResource("MonitorCard"), GroupName = "app", IsChecked = a == _app, Content = row,
+                Margin = new Thickness(0, 0, 0, 8),
+            };
+            card.Checked += (_, _) => { _app = a; _s.AppExe = a.Exe; _s.Save(); UpdateResolutionChips(); };
+            AppList.Children.Add(card);
+        }
+        if (_apps.Count == 0)
+            AppList.Children.Add(new TextBlock { Text = "No application windows found.", Foreground = (Brush)FindResource("Muted") });
     }
 
     static void UncheckAll(Panel host)
@@ -173,16 +238,36 @@ public partial class MainWindow : Window
             if (Monitors.Thumbnail(m, 400) is { } bmp) img.Source = bmp;
     }
 
-    /// <summary>Resolutions above the chosen monitor's height would upscale, so they're disabled.</summary>
+    /// <summary>Width, height and name of what's being recorded: the picked window or monitor.</summary>
+    (int w, int h, string name)? Source()
+    {
+        if (_s.AppMode)
+        {
+            if (_app == null || !AppWindows.Alive(_app.Hwnd)) return null;
+            var (w, h) = AppWindows.ClientSize(_app.Hwnd);
+            return (w, h, _app.Exe);
+        }
+        return _monitor == null ? null : (_monitor.Width, _monitor.Height, _monitor.Title);
+    }
+
+    /// <summary>Output frame size: the source scaled to the chosen height (never up), even sides.</summary>
+    static (int w, int h) OutputSize(int srcW, int srcH, int height)
+    {
+        int h = height > 0 && height < srcH ? height : srcH;
+        int w = (int)Math.Round(srcW * (double)h / srcH);
+        return (w & ~1, h & ~1);
+    }
+
+    /// <summary>Resolutions above the source's height would upscale, so they're disabled.</summary>
     void UpdateResolutionChips()
     {
-        if (_monitor == null) return;
+        if (Source() is not { } src) return;
         int i = 0;
         foreach (var rb in _resChipsHost.Children.OfType<RadioButton>())
         {
             int h = Resolutions[i++].height;
-            rb.IsEnabled = h == 0 || h < _monitor.Height;
-            rb.Content = h == 0 ? $"Native  ·  {_monitor.Height}p" : Resolutions[i - 1].label;
+            rb.IsEnabled = h == 0 || h < src.h;
+            rb.Content = h == 0 ? $"Native  ·  {src.h}p" : Resolutions[i - 1].label;
             if (!rb.IsEnabled && rb.IsChecked == true) ((RadioButton)_resChipsHost.Children[0]).IsChecked = true;
         }
     }
@@ -199,27 +284,42 @@ public partial class MainWindow : Window
 
     async void Record_Click(object sender, RoutedEventArgs e) => await Toggle();
 
+    string _recName = "";
+    int _recHeight;
+
     async Task Toggle()
     {
         if (_stopping) return;
         if (_rec.Running) { await Stop(); return; }
-        if (_monitor == null || Ffmpeg.Path == null) return;
+        if (Ffmpeg.Path == null) return;
+        if (Source() is not { } src)
+        {
+            StatusText.Text = _s.AppMode ? "Pick an application window to record." : "Pick a display to record.";
+            return;
+        }
 
-        var path = Path.Combine(_s.Folder, $"ReelCap_{DateTime.Now:yyyy-MM-dd_HH-mm-ss}.mp4");
+        var (w, h) = OutputSize(src.w, src.h, _s.Height);
         var o = new RecordOptions
         {
-            Monitor = _monitor, Fps = _s.Fps, Height = _s.Height < _monitor.Height ? _s.Height : 0, Seconds = _s.Seconds,
-            Codec = _s.Codec, UseGpu = _s.UseGpu, Quality = _s.Quality, Cursor = _s.Cursor, OutputPath = path,
+            Monitor = _s.AppMode ? null : _monitor, Window = _s.AppMode ? _app : null,
+            Width = w, Height = h, Fps = _s.Fps, Seconds = _s.Seconds,
+            Codec = _s.Codec, UseGpu = _s.UseGpu, Quality = _s.Quality, Cursor = _s.Cursor,
+            AppAudio = _s.AppMode && _s.AppAudio, OtherAudio = _s.AppMode && _s.OtherAudio,
+            SystemAudio = !_s.AppMode && _s.SystemAudio, Mic = _s.Mic,
+            OutputPath = Path.Combine(_s.Folder, $"ReelCap_{DateTime.Now:yyyy-MM-dd_HH-mm-ss}.mp4"),
         };
-        try { _rec.Start(o); }
-        catch (Exception ex) { StatusText.Text = ex.Message; return; }
+        RecordButton.IsEnabled = false;
+        try { await _rec.StartAsync(o); }
+        catch (Exception ex) { StatusText.Text = ex.Message; RecordButton.IsEnabled = true; return; }
+        RecordButton.IsEnabled = true;
 
+        _recName = src.name;
+        _recHeight = h;
         _recSeconds = o.Seconds;
         _started = DateTime.Now;
         _clock.Start();
         SetRecordingUi(true);
-        var outH = o.Height > 0 ? o.Height : _monitor.Height;
-        StatusText.Text = $"Recording {_monitor.Title}  ·  {outH}p  ·  {o.Fps} fps  ·  {Ffmpeg.Pick(o.Codec, o.UseGpu).label}";
+        StatusText.Text = $"Recording {_recName}  ·  {h}p  ·  {o.Fps} fps  ·  {Ffmpeg.Pick(o.Codec, o.UseGpu).label}";
         if (_s.HideWhileRecording) WindowState = WindowState.Minimized;
     }
 
@@ -246,11 +346,10 @@ public partial class MainWindow : Window
     void OnProgress(long frame, double fps, long drop, double secs)
     {
         if (_stopping || !_rec.Running) return;
-        var outH = (_s.Height > 0 && _monitor != null && _s.Height < _monitor.Height) ? _s.Height : _monitor?.Height ?? 0;
-        StatusText.Text = $"Recording {_monitor?.Title}  ·  {outH}p  ·  {fps:0} fps" + (drop > 0 ? $"  ·  {drop} dropped" : "") + $"  ·  {frame} frames";
+        StatusText.Text = $"Recording {_recName}  ·  {_recHeight}p  ·  {fps:0} fps" + (drop > 0 ? $"  ·  {drop} dropped" : "") + $"  ·  {frame} frames";
     }
 
-    void OnFinished(int code, string err)
+    void OnFinished(bool ok, string message)
     {
         _clock.Stop();
         _stopping = false;
@@ -258,19 +357,19 @@ public partial class MainWindow : Window
         RecordButton.IsEnabled = true;
         if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
 
-        var path = _rec.OutputPath;
-        if (File.Exists(path) && new FileInfo(path).Length > 1024)
+        if (ok && File.Exists(message))
         {
-            _lastClip = path;
-            var mb = new FileInfo(path).Length / (1024.0 * 1024.0);
-            StatusText.Text = $"Saved {Path.GetFileName(path)}  ·  {mb:0.0} MB";
+            _lastClip = message;
+            var mb = new FileInfo(message).Length / (1024.0 * 1024.0);
+            StatusText.Text = $"Saved {Path.GetFileName(message)}  ·  {mb:0.0} MB";
+            StatusText.ToolTip = null;
             LastClipButton.Visibility = Visibility.Visible;
         }
         else
         {
-            var line = err.Split('\n').LastOrDefault(l => !string.IsNullOrWhiteSpace(l)) ?? $"ffmpeg exited with code {code}";
+            var line = message.Split('\n').LastOrDefault(l => !string.IsNullOrWhiteSpace(l)) ?? "unknown error";
             StatusText.Text = "Recording failed: " + line;
-            StatusText.ToolTip = err;
+            StatusText.ToolTip = message;
         }
     }
 
@@ -281,14 +380,14 @@ public partial class MainWindow : Window
         if (!on) TimerText.Text = "00:00";
         ProgressTrack.Visibility = on && _recSeconds > 0 ? Visibility.Visible : Visibility.Collapsed;
         ProgressFill.Width = 0;
-        foreach (UIElement el in new UIElement[] { MonitorList, SettingsPanel }) el.IsEnabled = !on;
+        foreach (UIElement el in new UIElement[] { MonitorList, AppList, SourceChips, SettingsPanel }) el.IsEnabled = !on;
     }
 
     // ---------- Buttons ----------
 
     void Minimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
     void Close_Click(object sender, RoutedEventArgs e) => Close();
-    void RefreshMonitors_Click(object sender, RoutedEventArgs e) { if (!_rec.Running) LoadMonitors(); }
+    void RefreshSources_Click(object sender, RoutedEventArgs e) { if (_rec.Running) return; LoadMonitors(); LoadApps(); UpdateResolutionChips(); }
 
     void Browse_Click(object sender, RoutedEventArgs e)
     {

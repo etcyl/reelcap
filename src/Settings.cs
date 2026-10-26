@@ -14,6 +14,12 @@ public sealed class Settings
     public Quality Quality { get; set; } = Quality.High;
     public bool Cursor { get; set; } = true;
     public bool HideWhileRecording { get; set; }
+    public bool AppMode { get; set; }           // record one application window instead of a monitor
+    public string AppExe { get; set; } = "";    // last picked app, re-selected when it's running
+    public bool AppAudio { get; set; } = true;  // app mode: the app's own audio
+    public bool OtherAudio { get; set; }        // app mode: every other app's audio
+    public bool SystemAudio { get; set; } = true; // screen mode: everything that plays
+    public bool Mic { get; set; }
     public string Folder { get; set; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "ReelCap");
 
     static string FilePath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ReelCap", "settings.json");

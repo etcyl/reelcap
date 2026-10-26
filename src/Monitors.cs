@@ -14,6 +14,7 @@ public sealed class MonitorInfo
     public bool Primary;
     public int DdaIndex = -1;           // ffmpeg ddagrab output_idx, -1 = not on the default adapter (use gdigrab)
     public int Number;                  // 1-based, in display order
+    public IntPtr Handle;               // HMONITOR, for gfxcapture
 
     public string Title => string.IsNullOrWhiteSpace(FriendlyName) ? $"Display {Number}" : FriendlyName;
     public string Detail => $"{Width} x {Height}" + (RefreshHz > 0 ? $"  ·  {RefreshHz} Hz" : "");
@@ -45,6 +46,7 @@ public static class Monitors
                         Width = desc.Right - desc.Left, Height = desc.Bottom - desc.Top,
                         Primary = desc.Left == 0 && desc.Top == 0,
                         DdaIndex = a == 0 ? (int)o : -1,
+                        Handle = desc.Monitor,
                     });
                 }
                 Marshal.ReleaseComObject(adapter);

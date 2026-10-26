@@ -1,7 +1,7 @@
 <Window x:Class="ReelCap.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="ReelCap" Width="980" Height="760"
+        Title="ReelCap" Width="980" Height="830"
         WindowStartupLocation="CenterScreen" WindowStyle="None" ResizeMode="CanMinimize"
         Background="{StaticResource Bg}" FontFamily="{StaticResource Font}" Foreground="{StaticResource Text}"
         Icon="icon.png" UseLayoutRounding="True" TextOptions.TextFormattingMode="Display">
@@ -44,11 +44,15 @@
                 <DockPanel>
                     <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4">
                         <Button DockPanel.Dock="Right" Style="{StaticResource Caption}" Width="28" Height="22" Content="&#xE72C;"
-                                Tag="{StaticResource Card}" ToolTip="Refresh displays" Click="RefreshMonitors_Click" Margin="0,-4,0,0"/>
-                        <TextBlock Text="DISPLAY" Style="{StaticResource Label}"/>
+                                Tag="{StaticResource Card}" ToolTip="Refresh" Click="RefreshSources_Click" Margin="0,-4,0,0"/>
+                        <TextBlock Text="RECORD" Style="{StaticResource Label}"/>
                     </DockPanel>
+                    <UniformGrid DockPanel.Dock="Top" Columns="2" Margin="0,0,-8,6" x:Name="SourceChips"/>
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
-                        <StackPanel x:Name="MonitorList"/>
+                        <Grid>
+                            <StackPanel x:Name="MonitorList"/>
+                            <StackPanel x:Name="AppList" Visibility="Collapsed"/>
+                        </Grid>
                     </ScrollViewer>
                 </DockPanel>
             </Border>
@@ -80,6 +84,14 @@
                                 <WrapPanel x:Name="FormatChips"/>
                             </StackPanel>
                         </Grid>
+
+                        <TextBlock Text="AUDIO" Style="{StaticResource Label}"/>
+                        <WrapPanel Margin="0,2,0,14">
+                            <CheckBox x:Name="AppAudioToggle" Style="{StaticResource Toggle}" Content="App audio" Margin="0,0,24,8"/>
+                            <CheckBox x:Name="OtherAudioToggle" Style="{StaticResource Toggle}" Content="Other apps" Margin="0,0,24,8"/>
+                            <CheckBox x:Name="SystemAudioToggle" Style="{StaticResource Toggle}" Content="System audio" Margin="0,0,24,8"/>
+                            <CheckBox x:Name="MicToggle" Style="{StaticResource Toggle}" Content="Microphone" Margin="0,0,24,8"/>
+                        </WrapPanel>
 
                         <TextBlock Text="OPTIONS" Style="{StaticResource Label}"/>
                         <WrapPanel Margin="0,2,0,18">
