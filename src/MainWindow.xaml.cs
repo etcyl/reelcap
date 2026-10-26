@@ -11,7 +11,10 @@ namespace ReelCap;
 
 public partial class MainWindow : Window
 {
-    readonly Settings _s = Settings.Load();
+    /// <summary>Screenshot mode: made-up monitors and apps, nothing saved, nothing captured.</summary>
+    public static bool DemoMode;
+
+    readonly Settings _s = DemoMode ? new Settings { Folder = @"D:\Clips\ReelCap" } : Settings.Load();
     readonly Recorder _rec = new();
     readonly DispatcherTimer _thumbs = new() { Interval = TimeSpan.FromSeconds(2) };
     readonly DispatcherTimer _clock = new() { Interval = TimeSpan.FromMilliseconds(200) };
@@ -132,8 +135,26 @@ public partial class MainWindow : Window
         t.Click += (_, _) => { set(t.IsChecked == true); _s.Save(); };
     }
 
-    /// <summary>For the off-screen screenshot.</summary>
-    public void SelectAppMode() => ((RadioButton)SourceChips.Children[1]).IsChecked = true;
+    /// <summary>For the off-screen screenshots: picks the first demo app, optionally shows a recording in progress.</summary>
+    public void Demo(bool appMode, bool recording)
+    {
+        if (appMode)
+        {
+            ((RadioButton)SourceChips.Children[1]).IsChecked = true;
+            ((RadioButton)AppList.Children[_apps.FindIndex(a => a.Exe == "SkyforgeArena")]).IsChecked = true;
+            ((RadioButton)FpsChips.Children[3]).IsChecked = true;
+            ((RadioButton)LengthChips.Children[3]).IsChecked = true;
+            MicToggle.IsChecked = true;
+        }
+        if (!recording) return;
+        _recSeconds = _s.Seconds;
+        SetRecordingUi(true);
+        TimerText.Text = "00:42" + (_recSeconds > 0 ? $"  /  {FormatTime(_recSeconds)}" : "");
+        StatusText.Text = $"Recording {(appMode ? _app!.Exe : _monitor!.Title)}  ·  {Source()!.Value.h}p  ·  144 fps  ·  6048 frames";
+        ProgressTrack.Visibility = _recSeconds > 0 ? Visibility.Visible : Visibility.Collapsed;
+        UpdateLayout();
+        ProgressFill.Width = ProgressTrack.ActualWidth * 0.7;
+    }
 
     void SetMode(bool app)
     {
@@ -149,7 +170,7 @@ public partial class MainWindow : Window
 
     void LoadApps()
     {
-        _apps = AppWindows.Enumerate().OrderBy(a => a.Exe, StringComparer.OrdinalIgnoreCase).ThenBy(a => a.Title).ToList();
+        _apps = (DemoMode ? DemoData.Apps() : AppWindows.Enumerate()).OrderBy(a => a.Exe, StringComparer.OrdinalIgnoreCase).ThenBy(a => a.Title).ToList();
         AppList.Children.Clear();
         _app = _apps.FirstOrDefault(a => _app != null && a.Hwnd == _app.Hwnd)
                ?? _apps.FirstOrDefault(a => a.Exe.Equals(_s.AppExe, StringComparison.OrdinalIgnoreCase));
@@ -185,7 +206,7 @@ public partial class MainWindow : Window
 
     void LoadMonitors()
     {
-        _monitors = Monitors.Enumerate();
+        _monitors = DemoMode ? DemoData.Monitors() : Monitors.Enumerate();
         MonitorList.Children.Clear();
         _thumbImages.Clear();
         _monitor = _monitors.FirstOrDefault(m => m.DeviceName == _s.Monitor)
@@ -235,7 +256,7 @@ public partial class MainWindow : Window
     {
         if (_rec.Running || WindowState == WindowState.Minimized) return;
         foreach (var (m, img) in _thumbImages)
-            if (Monitors.Thumbnail(m, 400) is { } bmp) img.Source = bmp;
+            if ((DemoMode ? DemoData.Thumbnail(m) : Monitors.Thumbnail(m, 400)) is { } bmp) img.Source = bmp;
     }
 
     /// <summary>Width, height and name of what's being recorded: the picked window or monitor.</summary>
@@ -243,7 +264,9 @@ public partial class MainWindow : Window
     {
         if (_s.AppMode)
         {
-            if (_app == null || !AppWindows.Alive(_app.Hwnd)) return null;
+            if (_app == null) return null;
+            if (DemoMode) return (_app.Width, _app.Height, _app.Exe);
+            if (!AppWindows.Alive(_app.Hwnd)) return null;
             var (w, h) = AppWindows.ClientSize(_app.Hwnd);
             return (w, h, _app.Exe);
         }

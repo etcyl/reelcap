@@ -10,7 +10,7 @@ public partial class App : Application
     /// writes what happened to out.txt next to the clips, and exits. Nothing is shown on screen.</summary>
     protected override async void OnStartup(StartupEventArgs e)
     {
-        if (e.Args.Length >= 2 && e.Args[0] == "--screenshot") { await Screenshot(e.Args[1], e.Args.Length > 2 && e.Args[2] == "app"); return; }
+        if (e.Args.Length >= 2 && e.Args[0] == "--screenshot") { await Screenshot(e.Args[1], e.Args.Contains("app"), e.Args.Contains("rec")); return; }
         if (e.Args.Length < 2 || e.Args[0] != "--selftest") { base.OnStartup(e); new MainWindow().Show(); return; }
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
         var log = new StringWriter();
@@ -42,14 +42,17 @@ public partial class App : Application
         Shutdown();
     }
 
-    /// <summary>"--screenshot out.png [app]" renders the window off every monitor to a PNG and exits.</summary>
-    async Task Screenshot(string path, bool appMode)
+    /// <summary>"--screenshot out.png [app] [rec]" renders the window with made-up monitors and apps (never the real
+    /// desktop) off every monitor to a PNG and exits. Settings are not touched.</summary>
+    async Task Screenshot(string path, bool appMode, bool recording)
     {
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        ReelCap.MainWindow.DemoMode = true;
         var w = new MainWindow { WindowStartupLocation = WindowStartupLocation.Manual, Left = -30000, Top = -30000, ShowActivated = false, ShowInTaskbar = false };
         w.Show();
-        if (appMode) w.SelectAppMode();
         await Task.Delay(2500);
+        w.Demo(appMode, recording);
+        await Task.Delay(500);
         w.UpdateLayout();
         var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(w);
         var bmp = new System.Windows.Media.Imaging.RenderTargetBitmap((int)(w.ActualWidth * dpi.DpiScaleX), (int)(w.ActualHeight * dpi.DpiScaleY),

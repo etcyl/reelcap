@@ -32,6 +32,7 @@ public sealed class Settings
 
     public void Save()
     {
+        if (MainWindow.DemoMode) return;
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
